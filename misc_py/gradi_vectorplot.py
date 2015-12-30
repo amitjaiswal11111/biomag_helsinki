@@ -11,6 +11,8 @@ Find peak amplitudes.
 from __future__ import print_function
 
 
+import matplotlib
+
 import matplotlib.pyplot as plt
 import sys
 import mne
@@ -22,31 +24,32 @@ from mne.channels.layout import _merge_grad_data, _pair_grad_sensors
 USAGE = """
 Usage: gradi_vectorplot.py evoked_file condition [lowpass]
 
-evoked_file  name of fiff evoked file
+ evoked_file  name of fiff evoked file
 condition    name of category, e.g. "Auditory right"
 lowpass      (optional) lowpass corner frequency
 """
 
-
-if len(sys.argv) not in [3,4]:
-    sys.exit(USAGE)
-
-print(sys.argv[0])
-
-evoked_file = sys.argv[1]
-condition = sys.argv[2]
-if len(sys.argv) == 4:
-    lowpass = float(sys.argv[3])
-else:
-    lowpass = None
-        
+#
+#if len(sys.argv) not in [3,4]:
+#    sys.exit(USAGE)
+#
+#print(sys.argv[0])
+#
+#evoked_file = sys.argv[1]
+#condition = sys.argv[2]
+#if len(sys.argv) == 4:
+#    lowpass = float(sys.argv[3])
+#else:
+#    lowpass = None
+#        
 
 BUTTORD = 5  # order of Butterworth IIR lowpass filter
 
-# for testing
-#evoked_file = 'ekmultimodal02_raw_trans_tsss09_MEGrejoff_EOGrejoff_ave.fif'
-#condition = 'Auditory right'
-#lpfreq = 60
+#
+## for testing
+evoked_file = 'ekmultimodal02_raw_trans_tsss09_MEGrejoff_EOGrejoff_ave.fif'
+condition = 'Auditory right'
+lowpass = 60
 
 # read evoked data
 evoked = mne.read_evokeds(evoked_file, condition=condition)
@@ -96,13 +99,9 @@ for j,ch in enumerate(ch_names_gradc):
 pch, plat = evoked_mag.get_peak()
 print('Peak amplitude: channel pair',pch,'at latency',plat*1e3,'ms')
 
-    
-    
 # interactive plot    
 #plt.ion()
+
 mne.viz.plot_evoked_topo(evoked_mag, layout=laym, title=evoked_file)
-
-
-
 
 
