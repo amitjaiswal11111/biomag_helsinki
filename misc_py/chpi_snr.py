@@ -2,6 +2,10 @@
 """
 cHPI SNR.
 
+TODO:
+relative snr of coils depends of buflen, why?
+
+
 @author: jussi
 """
 
@@ -19,13 +23,17 @@ import numpy as np
 from scipy import signal
 
 
-buflen = 10000 #samples
+buflen = 6000 # samples
+n_linefreq_harm = 2  # how many line frequency harmonics to include
 
 filepath = '/home/jussi/Dropbox/megdata/'
 meg_fn = '/net/tera2/data/neuro-data/epilepsia/case_4532/151214/LA_loppp01R.fif'
+#meg_fn = filepath + 'babystat03_023_raw.fif'
 
 raw = mne.io.Raw(meg_fn, allow_maxshield=True)
 sfreq = raw.info['sfreq']
+linefreq = raw.info['line_freq']
+linefreqs = (np.arange(n_linefreq_harm+1)+1) * linefreq
 
 cfreqs = []    
 if len(raw.info['hpi_meas']) > 0 and 'coil_freq' in raw.info['hpi_meas'][0]['hpi_coils'][0]:
@@ -34,12 +42,10 @@ if len(raw.info['hpi_meas']) > 0 and 'coil_freq' in raw.info['hpi_meas'][0]['hpi
 else:
     raise Exception('Cannot determine cHPI frequencies from raw data info')
 
-print('\nNominal cHPI frequencies: ', cfreqs, ' Hz')
-    
-
+print('\nNominal cHPI frequencies: ', cfreqs, ' Hz')    
 print('Sampling frequency:', sfreq,'Hz')
+print('Using line freqs:', linefreqs, ' Hz')
 print('Using buffers of',buflen,'samples =',buflen/sfreq,'seconds')
-
 
 pick_meg = mne.pick_types(raw.info, meg=True)
 pick_mag = mne.pick_types(raw.info, meg='mag')
@@ -53,46 +59,79 @@ grad_ind = [i for i in range(0,len(meg_chnames)) if meg_chnames[i] in grad_chnam
 
 # create general linear model for the data
 t = np.linspace(0,buflen/sfreq,endpoint=False,num=buflen)
-model = t   # model slope
-model = np.c_[model, np.ones(t.shape)]  # model DC
-cfreqs.append(raw.info['line_freq'])  # model also line frequency
-for f in cfreqs:  # add sine and cosine term for each freq
+model = np.c_[t, np.ones(t.shape)]  # model slope and DC
+for f in list(linefreqs)+cfreqs:  # add sine and cosine term for each freq
     model = np.c_[model, np.cos(2*np.pi*f*t), np.sin(2*np.pi*f*t)]
 inv_model = np.linalg.pinv(model)
 
 # loop thru MEG data
 stop = raw.n_times
-#stop = 1e5
-bufs = range(0, int(stop), buflen)[:-1]
-snr_grad = np.zeros([len(cfreqs)-1, len(bufs)])
-snr_mag = np.zeros([len(cfreqs)-1, len(bufs)])
-amp_grad = np.zeros([len(cfreqs)-1, len(bufs)])
-amp_mag = np.zeros([len(cfreqs)-1, len(bufs)])
+stop = 2e5
+bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
+tvec = np.array(bufs)/sfreq
+snr_grad = np.zeros([len(cfreqs), len(bufs)])
+snr_mag = np.zeros([len(cfreqs), len(bufs)])
+amp_grad = np.zeros([len(cfreqs), len(bufs)])
+amp_mag = np.zeros([len(cfreqs), len(bufs)])
+resid_vars = np.zeros([306, len(bufs)])
+total_vars = np.zeros([306, len(bufs)])
 ind = 0
-for buf0 in bufs:  # drop last buffer to avoid overrun
-    megbuf = raw[pick_meg, buf0:buf0+buflen][0].transpose()
+for buf0 in bufs:  
+    megbufo = raw[pick_meg, buf0:buf0+buflen][0].transpose()
+
+    # debug: prefilter data
+    hipass = 10
+    fn = 2 * np.array(hipass) / sfreq
+    b, a = signal.butter(5, fn, 'highpass')
+    megbuf = signal.filtfilt(b, a, megbufo, axis=0)
+
     coeffs = np.dot(inv_model, megbuf)
-    coeffs_hpi = coeffs[2:-2]  # drop slope, dc and power line freq
-    resid_var = np.var(megbuf-np.dot(model,coeffs), 0)
+    coeffs_hpi = coeffs[2+2*len(linefreqs):]
+    resid_vars[:,ind] = np.var(megbuf-np.dot(model,coeffs), 0)
+    #resid_vars[:,ind] = np.ones([306])*1e-28
+    total_vars[:,ind] = np.var(megbuf, 0)
     # hpi amps from sine and cosine terms
     hpi_amps = np.sqrt(coeffs_hpi[0::2,:]**2 + coeffs_hpi[1::2,:]**2)
-    snr = np.divide(hpi_amps**2/2., resid_var)  # channelwise power snr
+    snr = np.divide(hpi_amps**2/2., resid_vars[:,ind])  # channelwise power snr
     snr_grad[:,ind] = np.mean(snr[:,grad_ind],axis=1)
     snr_mag[:,ind] = np.mean(snr[:,mag_ind],axis=1)
     # RMS amplitudes over grads and mags separately
-    amp_mag[:,ind] = np.sqrt(np.sum(hpi_amps[:,mag_ind]**2, 1))
-    amp_grad[:,ind] = np.sqrt(np.sum(hpi_amps[:,grad_ind]**2, 1))
+    amp_mag[:,ind] = np.sqrt(np.sum(hpi_amps[:,mag_ind]**2, 1)/len(mag_ind))
+    amp_grad[:,ind] = np.sqrt(np.sum(hpi_amps[:,grad_ind]**2, 1)/len(grad_ind))
     ind += 1
 
-tvec = np.array(bufs)/sfreq
+# power spectra of last MEG buffer + residual
+plt.figure()
+f, Pxx_den = signal.welch(megbuf, sfreq, nperseg=512, axis=0)
+plt.semilogy(f, np.mean(Pxx_den[:,grad_ind],1))
+f, Pxx_den = signal.welch(megbuf-np.dot(model,coeffs), sfreq, nperseg=512, axis=0)
+plt.semilogy(f, np.mean(Pxx_den[:,grad_ind],1))
+plt.title('Spectra of residual vs. original signal, last buffer')
+
+# residual variance as function of time
+plt.figure()
+plt.semilogy(tvec,resid_vars[grad_ind,:].transpose())
+plt.title('Residual variance, gradiometers')
+plt.xlabel('Time (s)')
+
+# total variance as function of time
+plt.figure()
+plt.semilogy(tvec,total_vars[grad_ind,:].transpose())
+plt.title('Total variance, gradiometers')
+plt.xlabel('Time (s)')
+
+
 plt.figure()
 plt.plot(tvec, 10*np.log10(snr_grad.transpose()))
 plt.title('Gradiometer mean power SNR')
+plt.ylim([0,40])
 plt.legend(cfreqs)
 
 plt.figure()
-plt.plot(tvec, amp_grad.transpose())
-plt.title('Gradiometer RMS amplitude')
+plt.plot(tvec, .01*amp_grad.transpose())
+plt.title('cHPI RMS amplitudes over gradiometers')
+plt.ylabel('RMS amplitude (T/cm)')
+plt.xlabel('Time (s)')
 plt.legend(cfreqs)
 
 sys.exit()
@@ -107,6 +146,9 @@ plt.legend(cfreqs)
 plt.figure()
 plt.plot(tvec, amp_mag.transpose())
 plt.title('Magnetometer RMS amplitude')
+plt.title('cHPI RMS amplitudes over magnetometers')
+plt.ylabel('RMS amplitude (T)')
+plt.xlabel('Time (s)')
 plt.legend(cfreqs)
 
 
