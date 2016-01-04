@@ -18,6 +18,8 @@ import mne
 import mne.viz
 import numpy as np
 from scipy import signal
+import os
+
 
 USAGE = """
 usage: chpi_snr.py fiff_file [buflen] [nharm]
@@ -31,9 +33,10 @@ nharm      number of line frequency harmonics to include in linear model, defaul
 buflen = 5000 # samples
 n_linefreq_harm = 2  # how many line frequency harmonics to include
 
-filepath = '/home/jussi/Dropbox/megdata/'
-meg_fn = '/net/tera2/data/neuro-data/epilepsia/case_4532/151214/LA_loppp01R.fif'
-#meg_fn = filepath + 'babystat03_023_raw.fif'
+homedir = os.path.expanduser('~')
+filepath = homedir + '/Dropbox/megdata/'
+#meg_fn = '/net/tera2/data/neuro-data/epilepsia/case_4532/151214/LA_loppp01R.fif'
+meg_fn = filepath + 'babystat03_023_raw.fif'
 
 raw = mne.io.Raw(meg_fn, allow_maxshield=True)
 sfreq = raw.info['sfreq']
@@ -76,6 +79,7 @@ bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
 tvec = np.array(bufs)/sfreq
 snr_grad = np.zeros([len(cfreqs), len(bufs)])
 snr_mag = np.zeros([len(cfreqs), len(bufs)])
+snr_avgavg = np.zeros([len(cfreqs),len(bufs)])
 amp_grad = np.zeros([len(cfreqs), len(bufs)])
 amp_mag = np.zeros([len(cfreqs), len(bufs)])
 resid_vars = np.zeros([306, len(bufs)])
@@ -102,8 +106,7 @@ for buf0 in bufs:
     snr_grad[:,ind] = np.mean(snr[:,grad_ind],axis=1)
     snr_mag[:,ind] = np.mean(snr[:,mag_ind],axis=1)
     # average power / avg variance
-    np.divide(hpi_amps[grad_ind,:].mean(1), resid_vars[grad_ind,ind].mean())
-    
+    snr_avgavg[:,ind] = np.divide((hpi_amps**2/2)[:,grad_ind].mean(1),resid_vars[grad_ind,ind].mean())
     # RMS amplitudes over grads and mags separately
     amp_mag[:,ind] = np.sqrt(np.sum(hpi_amps[:,mag_ind]**2, 1)/len(mag_ind))
     amp_grad[:,ind] = np.sqrt(np.sum(hpi_amps[:,grad_ind]**2, 1)/len(grad_ind))
