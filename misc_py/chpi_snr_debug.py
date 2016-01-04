@@ -27,26 +27,8 @@ buflen     buffer length (seconds), default 0.5 s
 nharm      number of line frequency harmonics to include in linear model, default 2
 """
 
-if len(sys.argv) not in [2,3,4]:
-    sys.exit(USAGE)
 
-meg_fn = sys.argv[1]
-raw = mne.io.Raw(meg_fn, allow_maxshield=True)
-sfreq = raw.info['sfreq']
-linefreq = raw.info['line_freq']
-linefreqs = (np.arange(n_linefreq_harm+1)+1) * linefreq
-
-if len(sys.argv) > 2:
-    buflen = sys.argv[2]
-else:
-    buflen 
-if len(sys.argv) > 3:
-    nharm = sys.argv[3]
- 
-
-
-
-buflen = 6000 # samples
+buflen = 5000 # samples
 n_linefreq_harm = 2  # how many line frequency harmonics to include
 
 filepath = '/home/jussi/Dropbox/megdata/'
@@ -100,13 +82,13 @@ resid_vars = np.zeros([306, len(bufs)])
 total_vars = np.zeros([306, len(bufs)])
 ind = 0
 for buf0 in bufs:  
-    megbufo = raw[pick_meg, buf0:buf0+buflen][0].transpose()
+    megbuf = raw[pick_meg, buf0:buf0+buflen][0].transpose()
 
     # debug: prefilter data
     hipass = 100
     fn = 2 * np.array(hipass) / sfreq
     b, a = signal.butter(5, fn, 'highpass')
-    megbuf = signal.filtfilt(b, a, megbufo, axis=0)
+    #megbuf = signal.filtfilt(b, a, megbufo, axis=0)
 
     coeffs = np.dot(inv_model, megbuf)
     coeffs_hpi = coeffs[2+2*len(linefreqs):]
@@ -115,9 +97,13 @@ for buf0 in bufs:
     total_vars[:,ind] = np.var(megbuf, 0)
     # hpi amps from sine and cosine terms
     hpi_amps = np.sqrt(coeffs_hpi[0::2,:]**2 + coeffs_hpi[1::2,:]**2)
-    snr = np.divide(hpi_amps**2/2., resid_vars[:,ind])  # channelwise power snr
+    # take channelwise SNR and average
+    snr = np.divide(hpi_amps**2/2., resid_vars[:,ind])
     snr_grad[:,ind] = np.mean(snr[:,grad_ind],axis=1)
     snr_mag[:,ind] = np.mean(snr[:,mag_ind],axis=1)
+    # average power / avg variance
+    np.divide(hpi_amps[grad_ind,:].mean(1), resid_vars[grad_ind,ind].mean())
+    
     # RMS amplitudes over grads and mags separately
     amp_mag[:,ind] = np.sqrt(np.sum(hpi_amps[:,mag_ind]**2, 1)/len(mag_ind))
     amp_grad[:,ind] = np.sqrt(np.sum(hpi_amps[:,grad_ind]**2, 1)/len(grad_ind))
