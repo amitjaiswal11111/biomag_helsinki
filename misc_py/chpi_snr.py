@@ -126,6 +126,7 @@ plt.xlabel('Time (s)')
 plt.ylabel('Variance (fT/m)^2')
 plt.xlim([plt.xlim()[0], plt.xlim()[1]*1.3])
 
+plt.show()
 
 
 
