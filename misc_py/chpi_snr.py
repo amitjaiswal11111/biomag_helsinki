@@ -1,9 +1,18 @@
 # -*- coding: utf-8 -*-
 """
+chpi_snr.py
 
+Plot signal-to-noise of continuous HPI coils as a function of time.
+Works by fitting a general linear model (HPI freqs, line freqs, DC, slope) to
+the data, and comparing estimated HPI powers with the residual (=variance
+unexplained by the model).
+Buffer length can be specified on the command line. Longer buffers will by
+nature include more low frequencies and thus have larger residual variance
+(lower SNR).
 
+Tested with Python 2.7, MNE 0.11.0
 
-@author: jussi
+@author: jussi (jnu@iki.fi)
 """
 
 
@@ -11,53 +20,30 @@ from __future__ import print_function
 
 
 import matplotlib
-
 import matplotlib.pyplot as plt
 import sys
 import mne
 import mne.viz
 import numpy as np
+import argparse
 from scipy import signal
 
-USAGE = """
-usage: chpi_snr.py fiff_file [buflen] [nharm]
+# parameters
+legend_fontsize = 12
 
-fiff_file  input raw fiff file
-buflen     buffer length (seconds), default 0.5 s
-nharm      number of line frequency harmonics to include in linear model, default 2
-"""
+# parse command line
+parser = argparse.ArgumentParser()
+parser.add_argument('fiff_file', help='Name of raw fiff file')
+parser.add_argument('--buflen', type=float, default=0.5, help='Buffer length for SNR estimates (seconds)')
+parser.add_argument('--nharm', type=int, default=2, choices=[0,1,2,3,4], help='Number of line frequency harmonics to include')
+args = parser.parse_args()
 
-if len(sys.argv) not in [2,3,4]:
-    sys.exit(USAGE)
-
-meg_fn = sys.argv[1]
-raw = mne.io.Raw(meg_fn, allow_maxshield=True)
+# get info from fiff
+raw = mne.io.Raw(args.fiff_file, allow_maxshield=True)
 sfreq = raw.info['sfreq']
 linefreq = raw.info['line_freq']
-linefreqs = (np.arange(n_linefreq_harm+1)+1) * linefreq
-
-if len(sys.argv) > 2:
-    buflen = sys.argv[2]
-else:
-    buflen 
-if len(sys.argv) > 3:
-    nharm = sys.argv[3]
- 
-
-
-
-buflen = 6000 # samples
-n_linefreq_harm = 2  # how many line frequency harmonics to include
-
-filepath = '/home/jussi/Dropbox/megdata/'
-meg_fn = '/net/tera2/data/neuro-data/epilepsia/case_4532/151214/LA_loppp01R.fif'
-#meg_fn = filepath + 'babystat03_023_raw.fif'
-
-raw = mne.io.Raw(meg_fn, allow_maxshield=True)
-sfreq = raw.info['sfreq']
-linefreq = raw.info['line_freq']
-linefreqs = (np.arange(n_linefreq_harm+1)+1) * linefreq
-
+linefreqs = (np.arange(args.nharm+1)+1) * linefreq
+buflen = int(args.buflen * sfreq)
 cfreqs = []    
 if len(raw.info['hpi_meas']) > 0 and 'coil_freq' in raw.info['hpi_meas'][0]['hpi_coils'][0]:
     for coil in raw.info['hpi_meas'][0]['hpi_coils']:
@@ -87,163 +73,67 @@ for f in list(linefreqs)+cfreqs:  # add sine and cosine term for each freq
     model = np.c_[model, np.cos(2*np.pi*f*t), np.sin(2*np.pi*f*t)]
 inv_model = np.linalg.pinv(model)
 
-# loop thru MEG data
+# loop through MEG data
 stop = raw.n_times
 stop = 2e5
 bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
 tvec = np.array(bufs)/sfreq
 snr_grad = np.zeros([len(cfreqs), len(bufs)])
 snr_mag = np.zeros([len(cfreqs), len(bufs)])
-amp_grad = np.zeros([len(cfreqs), len(bufs)])
-amp_mag = np.zeros([len(cfreqs), len(bufs)])
+snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
+snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
 resid_vars = np.zeros([306, len(bufs)])
-total_vars = np.zeros([306, len(bufs)])
 ind = 0
 for buf0 in bufs:  
-    megbufo = raw[pick_meg, buf0:buf0+buflen][0].transpose()
-
-    # debug: prefilter data
-    hipass = 100
-    fn = 2 * np.array(hipass) / sfreq
-    b, a = signal.butter(5, fn, 'highpass')
-    megbuf = signal.filtfilt(b, a, megbufo, axis=0)
-
+    megbuf = raw[pick_meg, buf0:buf0+buflen][0].transpose()
     coeffs = np.dot(inv_model, megbuf)
     coeffs_hpi = coeffs[2+2*len(linefreqs):]
     resid_vars[:,ind] = np.var(megbuf-np.dot(model,coeffs), 0)
-    #resid_vars[:,ind] = np.ones([306])*1e-28
-    total_vars[:,ind] = np.var(megbuf, 0)
-    # hpi amps from sine and cosine terms
+    # get total hpi amplitudes by combining sine and cosine terms
     hpi_amps = np.sqrt(coeffs_hpi[0::2,:]**2 + coeffs_hpi[1::2,:]**2)
-    snr = np.divide(hpi_amps**2/2., resid_vars[:,ind])  # channelwise power snr
+    # first compute channelwise SNRs, then average
+    snr = np.divide(hpi_amps**2/2., resid_vars[:,ind])
     snr_grad[:,ind] = np.mean(snr[:,grad_ind],axis=1)
     snr_mag[:,ind] = np.mean(snr[:,mag_ind],axis=1)
-    # RMS amplitudes over grads and mags separately
-    amp_mag[:,ind] = np.sqrt(np.sum(hpi_amps[:,mag_ind]**2, 1)/len(mag_ind))
-    amp_grad[:,ind] = np.sqrt(np.sum(hpi_amps[:,grad_ind]**2, 1)/len(grad_ind))
+    # alternatively, average power divided by average variance
+    snr_avg_grad[:,ind] = np.divide((hpi_amps**2/2)[:,grad_ind].mean(1),resid_vars[grad_ind,ind].mean())
+    snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,mag_ind].mean(1),resid_vars[mag_ind,ind].mean())
     ind += 1
+    
+cfreqs_legend = [str(fre)+' Hz' for fre in cfreqs]
 
-# power spectra of last MEG buffer + residual
-plt.figure()
-f, Pxx_den = signal.welch(megbuf, sfreq, nperseg=512, axis=0)
-plt.semilogy(f, np.mean(Pxx_den[:,grad_ind],1))
-f, Pxx_den = signal.welch(megbuf-np.dot(model,coeffs), sfreq, nperseg=512, axis=0)
-plt.semilogy(f, np.mean(Pxx_den[:,grad_ind],1))
-plt.title('Spectra of residual vs. original signal, last buffer')
-
-# residual variance as function of time
+# residual (unexplained) variance as function of time
 plt.figure()
 plt.semilogy(tvec,resid_vars[grad_ind,:].transpose())
 plt.title('Residual variance, gradiometers')
 plt.xlabel('Time (s)')
-
-# total variance as function of time
-plt.figure()
-plt.semilogy(tvec,total_vars[grad_ind,:].transpose())
-plt.title('Total variance, gradiometers')
-plt.xlabel('Time (s)')
-
+plt.ylabel('Variance (fT/m)^2')
 
 plt.figure()
-plt.plot(tvec, 10*np.log10(snr_grad.transpose()))
+# order curve legends according to mean of data
+sind = np.argsort(snr_grad.mean(axis=1))[::-1]
+lines1 = plt.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
 plt.title('Gradiometer mean power SNR')
-plt.ylim([0,40])
-plt.legend(cfreqs)
-
-plt.figure()
-plt.plot(tvec, .01*amp_grad.transpose())
-plt.title('cHPI RMS amplitudes over gradiometers')
-plt.ylabel('RMS amplitude (T/cm)')
+plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
+plt.ylabel('SNR (dB)')
 plt.xlabel('Time (s)')
-plt.legend(cfreqs)
-
-sys.exit()
-
+# create some horizontal space for legend
+xlim = plt.xlim()
+plt.xlim([xlim[0], xlim[1]+(xlim[1]-xlim[0])*.3])
 
 plt.figure()
-plt.plot(tvec, 10*np.log10(snr_mag.transpose()))
+sind = np.argsort(snr_mag.mean(axis=1))[::-1]
+lines1 = plt.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
 plt.title('Magnetometer mean power SNR')
-plt.legend(cfreqs)
-
-
-plt.figure()
-plt.plot(tvec, amp_mag.transpose())
-plt.title('Magnetometer RMS amplitude')
-plt.title('cHPI RMS amplitudes over magnetometers')
-plt.ylabel('RMS amplitude (T)')
+plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
+plt.ylabel('SNR (dB)')
 plt.xlabel('Time (s)')
-plt.legend(cfreqs)
-
-
-
-sys.exit()
-
-
-    
+xlim = plt.xlim()
+plt.xlim([xlim[0], xlim[1]+(xlim[1]-xlim[0])*.3])
 
 
 
 
 
-"""
-test signals
-
-
-f1 = 205
-f2 = 230
-t = np.arange(0,2,1/sfreq)
-k = 10  # slope
-A1 = 3.5
-A2 = 5.5
-phi1 = np.pi/4
-phi2 = np.pi/3
-An = 0
-testsig = A1 * np.sin(2*np.pi*f1*t+phi1) + A2 * np.sin(2*np.pi*f2*t+phi2) + An * np.random.randn(len(t)) + k * t + 100
-
-# model
-freqs = [f1,f2]
-model = t
-model = np.c_[model, np.ones(t.shape)]
-for f in freqs:
-    model = np.c_[model, np.cos(2*np.pi*f*t), np.sin(2*np.pi*f*t)]
-#testsig = testsig - testsig.mean()
-amps = np.dot(np.linalg.pinv(model), testsig)
-np.sqrt(amps[2]**2+amps[3]**2)
-
-
-amps = amps[1:-1]
-A1_est = np.sqrt(amps[0]**2+amps[1]**2)
-
-
-
-
-for f in freqs:
-    mod.append(np.cos(2*np.pi*f1*t))
-    mod.append(np.sin(2*np.pi*f1*t))
-mod.append(t)
-
-
-
-
-
-
-
-        
-            sfreq = raw.info['sfreq']
-
-picks_meg = mne.pick_types(raw.info, meg='mag')
-
-
-
-dt_meg = raw[picks_meg,:][0]
-
-
-dt_ch = dt_meg[1,:]
-f, Pxx_den = signal.welch(dt_ch, sfreq, nperseg=1024)
-plt.semilogy(f, Pxx_den)
-
-
-
-"""
 
 

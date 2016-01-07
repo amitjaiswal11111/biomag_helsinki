@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-
+Testbench for chpi_snr
 
 
 @author: jussi
@@ -20,14 +20,6 @@ import numpy as np
 from scipy import signal
 import os
 
-
-USAGE = """
-usage: chpi_snr.py fiff_file [buflen] [nharm]
-
-fiff_file  input raw fiff file
-buflen     buffer length (seconds), default 0.5 s
-nharm      number of line frequency harmonics to include in linear model, default 2
-"""
 
 
 buflen = 5000 # samples
@@ -132,11 +124,10 @@ plt.semilogy(tvec,total_vars[grad_ind,:].transpose())
 plt.title('Total variance, gradiometers')
 plt.xlabel('Time (s)')
 
-
 plt.figure()
 plt.plot(tvec, 10*np.log10(snr_grad.transpose()))
 plt.title('Gradiometer mean power SNR')
-plt.ylim([0,40])
+#plt.ylim([0,40])
 plt.legend(cfreqs)
 
 plt.figure()
@@ -146,14 +137,10 @@ plt.ylabel('RMS amplitude (T/cm)')
 plt.xlabel('Time (s)')
 plt.legend(cfreqs)
 
-sys.exit()
-
-
 plt.figure()
 plt.plot(tvec, 10*np.log10(snr_mag.transpose()))
 plt.title('Magnetometer mean power SNR')
 plt.legend(cfreqs)
-
 
 plt.figure()
 plt.plot(tvec, amp_mag.transpose())
