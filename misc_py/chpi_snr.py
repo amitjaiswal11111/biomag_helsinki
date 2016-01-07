@@ -6,9 +6,9 @@ Plot signal-to-noise of continuous HPI coils as a function of time.
 Works by fitting a general linear model (HPI freqs, line freqs, DC, slope) to
 the data, and comparing estimated HPI powers with the residual (=variance
 unexplained by the model).
-Buffer length can be specified on the command line. Longer buffers will by
-nature include more low frequencies and thus have larger residual variance
-(lower SNR).
+Window length for SNR estimates can be specified on the command line.
+Longer windows will by nature include more low frequencies and thus have 
+larger residual variance (lower SNR).
 
 Tested with Python 2.7, MNE 0.11.0
 
@@ -17,25 +17,21 @@ Tested with Python 2.7, MNE 0.11.0
 
 
 from __future__ import print_function
-
-
-import matplotlib
 import matplotlib.pyplot as plt
-import sys
 import mne
-import mne.viz
 import numpy as np
 import argparse
-from scipy import signal
 
 # parameters
 legend_fontsize = 12
+default_winlen = .5
+default_nharm = 2
 
 # parse command line
 parser = argparse.ArgumentParser()
 parser.add_argument('fiff_file', help='Name of raw fiff file')
-parser.add_argument('--buflen', type=float, default=0.5, help='Buffer length for SNR estimates (seconds)')
-parser.add_argument('--nharm', type=int, default=2, choices=[0,1,2,3,4], help='Number of line frequency harmonics to include')
+parser.add_argument('--winlen', type=float, default=default_winlen, help='Buffer length for SNR estimates (seconds)')
+parser.add_argument('--nharm', type=int, default=default_nharm, choices=[0,1,2,3,4], help='Number of line frequency harmonics to include')
 args = parser.parse_args()
 
 # get info from fiff
@@ -43,7 +39,7 @@ raw = mne.io.Raw(args.fiff_file, allow_maxshield=True)
 sfreq = raw.info['sfreq']
 linefreq = raw.info['line_freq']
 linefreqs = (np.arange(args.nharm+1)+1) * linefreq
-buflen = int(args.buflen * sfreq)
+buflen = int(args.winlen * sfreq)
 cfreqs = []    
 if len(raw.info['hpi_meas']) > 0 and 'coil_freq' in raw.info['hpi_meas'][0]['hpi_coils'][0]:
     for coil in raw.info['hpi_meas'][0]['hpi_coils']:
@@ -54,7 +50,7 @@ else:
 print('\nNominal cHPI frequencies: ', cfreqs, ' Hz')    
 print('Sampling frequency:', sfreq,'Hz')
 print('Using line freqs:', linefreqs, ' Hz')
-print('Using buffers of',buflen,'samples =',buflen/sfreq,'seconds')
+print('Using buffers of',buflen,'samples =',buflen/sfreq,'seconds\n')
 
 pick_meg = mne.pick_types(raw.info, meg=True)
 pick_mag = mne.pick_types(raw.info, meg='mag')
@@ -75,7 +71,6 @@ inv_model = np.linalg.pinv(model)
 
 # loop through MEG data
 stop = raw.n_times
-stop = 2e5
 bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
 tvec = np.array(bufs)/sfreq
 snr_grad = np.zeros([len(cfreqs), len(bufs)])
@@ -95,12 +90,33 @@ for buf0 in bufs:
     snr = np.divide(hpi_amps**2/2., resid_vars[:,ind])
     snr_grad[:,ind] = np.mean(snr[:,grad_ind],axis=1)
     snr_mag[:,ind] = np.mean(snr[:,mag_ind],axis=1)
-    # alternatively, average power divided by average variance
+    # ...or average power divided by average variance
     snr_avg_grad[:,ind] = np.divide((hpi_amps**2/2)[:,grad_ind].mean(1),resid_vars[grad_ind,ind].mean())
     snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,mag_ind].mean(1),resid_vars[mag_ind,ind].mean())
     ind += 1
-    
+
+# plot SNR as function of time    
 cfreqs_legend = [str(fre)+' Hz' for fre in cfreqs]
+
+plt.figure()
+# order curve legends according to mean of data
+sind = np.argsort(snr_grad.mean(axis=1))[::-1]
+lines1 = plt.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
+plt.title('Mean cHPI power / mean variance (gradiometers)')
+plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
+plt.ylabel('SNR (dB)')
+plt.xlabel('Time (s)')
+# create some horizontal space for legend
+plt.xlim([plt.xlim()[0], plt.xlim()[1]*1.3])
+
+plt.figure()
+sind = np.argsort(snr_mag.mean(axis=1))[::-1]
+lines1 = plt.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
+plt.title('Mean cHPI power / mean variance (magnetometers)')
+plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
+plt.ylabel('SNR (dB)')
+plt.xlabel('Time (s)')
+plt.xlim([plt.xlim()[0], plt.xlim()[1]*1.3])
 
 # residual (unexplained) variance as function of time
 plt.figure()
@@ -108,28 +124,8 @@ plt.semilogy(tvec,resid_vars[grad_ind,:].transpose())
 plt.title('Residual variance, gradiometers')
 plt.xlabel('Time (s)')
 plt.ylabel('Variance (fT/m)^2')
+plt.xlim([plt.xlim()[0], plt.xlim()[1]*1.3])
 
-plt.figure()
-# order curve legends according to mean of data
-sind = np.argsort(snr_grad.mean(axis=1))[::-1]
-lines1 = plt.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
-plt.title('Gradiometer mean power SNR')
-plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
-plt.ylabel('SNR (dB)')
-plt.xlabel('Time (s)')
-# create some horizontal space for legend
-xlim = plt.xlim()
-plt.xlim([xlim[0], xlim[1]+(xlim[1]-xlim[0])*.3])
-
-plt.figure()
-sind = np.argsort(snr_mag.mean(axis=1))[::-1]
-lines1 = plt.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
-plt.title('Magnetometer mean power SNR')
-plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
-plt.ylabel('SNR (dB)')
-plt.xlabel('Time (s)')
-xlim = plt.xlim()
-plt.xlim([xlim[0], xlim[1]+(xlim[1]-xlim[0])*.3])
 
 
 
