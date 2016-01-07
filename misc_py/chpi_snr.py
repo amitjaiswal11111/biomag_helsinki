@@ -24,7 +24,7 @@ import argparse
 
 # parameters
 legend_fontsize = 12
-default_winlen = .5
+default_winlen = 1
 default_nharm = 2
 
 # parse command line
@@ -90,7 +90,7 @@ for buf0 in bufs:
     snr = np.divide(hpi_amps**2/2., resid_vars[:,ind])
     snr_grad[:,ind] = np.mean(snr[:,grad_ind],axis=1)
     snr_mag[:,ind] = np.mean(snr[:,mag_ind],axis=1)
-    # ...or average power divided by average variance
+    # ...or divide average power by average variance
     snr_avg_grad[:,ind] = np.divide((hpi_amps**2/2)[:,grad_ind].mean(1),resid_vars[grad_ind,ind].mean())
     snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,mag_ind].mean(1),resid_vars[mag_ind,ind].mean())
     ind += 1
@@ -102,7 +102,7 @@ plt.figure()
 # order curve legends according to mean of data
 sind = np.argsort(snr_grad.mean(axis=1))[::-1]
 lines1 = plt.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
-plt.title('Mean cHPI power / mean variance (gradiometers)')
+plt.title('Mean cHPI power / mean residual variance (gradiometers)')
 plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
 plt.ylabel('SNR (dB)')
 plt.xlabel('Time (s)')
@@ -112,7 +112,7 @@ plt.xlim([plt.xlim()[0], plt.xlim()[1]*1.3])
 plt.figure()
 sind = np.argsort(snr_mag.mean(axis=1))[::-1]
 lines1 = plt.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
-plt.title('Mean cHPI power / mean variance (magnetometers)')
+plt.title('Mean cHPI power / mean residual variance (magnetometers)')
 plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
 plt.ylabel('SNR (dB)')
 plt.xlabel('Time (s)')
