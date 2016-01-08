@@ -23,9 +23,11 @@ import numpy as np
 import argparse
 
 # parameters
+default_winlen = 1  # window length, seconds
+default_nharm = 2  # number of line harmonics to include
+# plotting parameters
 legend_fontsize = 12
-default_winlen = 1
-default_nharm = 2
+legend_hspace = 30  # % of horizontal space to reserve for legend
 
 # parse command line
 parser = argparse.ArgumentParser()
@@ -69,12 +71,11 @@ for f in list(linefreqs)+cfreqs:  # add sine and cosine term for each freq
     model = np.c_[model, np.cos(2*np.pi*f*t), np.sin(2*np.pi*f*t)]
 inv_model = np.linalg.pinv(model)
 
-# loop through MEG data
+# loop through MEG data, fit linear model and compute SNR at each window
 stop = raw.n_times
+stop = 1e5
 bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
 tvec = np.array(bufs)/sfreq
-snr_grad = np.zeros([len(cfreqs), len(bufs)])
-snr_mag = np.zeros([len(cfreqs), len(bufs)])
 snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
 snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
 resid_vars = np.zeros([306, len(bufs)])
@@ -86,45 +87,42 @@ for buf0 in bufs:
     resid_vars[:,ind] = np.var(megbuf-np.dot(model,coeffs), 0)
     # get total hpi amplitudes by combining sine and cosine terms
     hpi_amps = np.sqrt(coeffs_hpi[0::2,:]**2 + coeffs_hpi[1::2,:]**2)
-    # first compute channelwise SNRs, then average
-    snr = np.divide(hpi_amps**2/2., resid_vars[:,ind])
-    snr_grad[:,ind] = np.mean(snr[:,grad_ind],axis=1)
-    snr_mag[:,ind] = np.mean(snr[:,mag_ind],axis=1)
     # ...or divide average power by average variance
     snr_avg_grad[:,ind] = np.divide((hpi_amps**2/2)[:,grad_ind].mean(1),resid_vars[grad_ind,ind].mean())
     snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,mag_ind].mean(1),resid_vars[mag_ind,ind].mean())
     ind += 1
 
-# plot SNR as function of time    
+
 cfreqs_legend = [str(fre)+' Hz' for fre in cfreqs]
 
 plt.figure()
 # order curve legends according to mean of data
-sind = np.argsort(snr_grad.mean(axis=1))[::-1]
+sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
 lines1 = plt.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
 plt.title('Mean cHPI power / mean residual variance (gradiometers)')
 plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
 plt.ylabel('SNR (dB)')
 plt.xlabel('Time (s)')
 # create some horizontal space for legend
-plt.xlim([plt.xlim()[0], plt.xlim()[1]*1.3])
+plt.xlim([plt.xlim()[0], plt.xlim()[1]*(1+legend_hspace/100.)])
 
 plt.figure()
-sind = np.argsort(snr_mag.mean(axis=1))[::-1]
+sind = np.argsort(snr_avg_mag.mean(axis=1))[::-1]
 lines1 = plt.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
 plt.title('Mean cHPI power / mean residual variance (magnetometers)')
 plt.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind], prop={'size':legend_fontsize})
 plt.ylabel('SNR (dB)')
 plt.xlabel('Time (s)')
-plt.xlim([plt.xlim()[0], plt.xlim()[1]*1.3])
+plt.xlim([plt.xlim()[0], plt.xlim()[1]*(1+legend_hspace/100.)])
 
 # residual (unexplained) variance as function of time
 plt.figure()
 plt.semilogy(tvec,resid_vars[grad_ind,:].transpose())
-plt.title('Residual variance, gradiometers')
+plt.title('Residual (unexplained) variance, gradiometers')
 plt.xlabel('Time (s)')
 plt.ylabel('Variance (fT/m)^2')
-plt.xlim([plt.xlim()[0], plt.xlim()[1]*1.3])
+plt.xlim([plt.xlim()[0], plt.xlim()[1]*(1+legend_hspace/100.)])
+
 
 plt.show()
 
