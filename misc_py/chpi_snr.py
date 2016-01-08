@@ -73,7 +73,6 @@ inv_model = np.linalg.pinv(model)
 
 # loop through MEG data, fit linear model and compute SNR at each window
 stop = raw.n_times
-stop = 1e5
 bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
 tvec = np.array(bufs)/sfreq
 snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
