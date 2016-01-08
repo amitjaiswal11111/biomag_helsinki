@@ -32,8 +32,9 @@ legend_hspace = 30  # % of horizontal space to reserve for legend
 # parse command line
 parser = argparse.ArgumentParser()
 parser.add_argument('fiff_file', help='Name of raw fiff file')
-parser.add_argument('--winlen', type=float, default=default_winlen, help='Buffer length for SNR estimates (seconds)')
+parser.add_argument('--winlen', type=float, default=default_winlen, help='Buffer length for SNR estimates (s)')
 parser.add_argument('--nharm', type=int, default=default_nharm, choices=[0,1,2,3,4], help='Number of line frequency harmonics to include')
+parser.add_argument('--stop', type=float, metavar='t', default=None, help='Process only first t seconds')
 args = parser.parse_args()
 
 # get info from fiff
@@ -42,6 +43,9 @@ sfreq = raw.info['sfreq']
 linefreq = raw.info['line_freq']
 linefreqs = (np.arange(args.nharm+1)+1) * linefreq
 buflen = int(args.winlen * sfreq)
+if buflen <= 0:
+    raise Exception('Window length should be >0')
+
 cfreqs = []    
 if len(raw.info['hpi_meas']) > 0 and 'coil_freq' in raw.info['hpi_meas'][0]['hpi_coils'][0]:
     for coil in raw.info['hpi_meas'][0]['hpi_coils']:
@@ -72,7 +76,10 @@ for f in list(linefreqs)+cfreqs:  # add sine and cosine term for each freq
 inv_model = np.linalg.pinv(model)
 
 # loop through MEG data, fit linear model and compute SNR at each window
-stop = raw.n_times
+if args.stop:
+    stop = int(args.stop * sfreq)
+else:
+    stop = raw.n_times
 bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
 tvec = np.array(bufs)/sfreq
 snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
@@ -86,7 +93,7 @@ for buf0 in bufs:
     resid_vars[:,ind] = np.var(megbuf-np.dot(model,coeffs), 0)
     # get total hpi amplitudes by combining sine and cosine terms
     hpi_amps = np.sqrt(coeffs_hpi[0::2,:]**2 + coeffs_hpi[1::2,:]**2)
-    # ...or divide average power by average variance
+    # divide average HPI power by average variance
     snr_avg_grad[:,ind] = np.divide((hpi_amps**2/2)[:,grad_ind].mean(1),resid_vars[grad_ind,ind].mean())
     snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,mag_ind].mean(1),resid_vars[mag_ind,ind].mean())
     ind += 1
