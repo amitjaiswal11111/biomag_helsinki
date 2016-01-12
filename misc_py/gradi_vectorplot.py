@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+gradi_vectorplot.py
+
 Combine gradiometer data from evoked responses.
-Plot combined responses in topographic plot (XPlotter style)
+Plot combined responses in topographic plot (XPlotter style).
 Find peak amplitudes.
+
+TODO: use argparse
 
 @author: jussi
 """
@@ -16,6 +20,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import sys
 import mne
+import argparse
 import mne.viz
 import numpy as np
 from scipy import signal
@@ -24,7 +29,7 @@ from mne.channels.layout import _merge_grad_data, _pair_grad_sensors
 USAGE = """
 Usage: gradi_vectorplot.py evoked_file condition [lowpass]
 
- evoked_file  name of fiff evoked file
+evoked_file  name of fiff evoked file
 condition    name of category, e.g. "Auditory right"
 lowpass      (optional) lowpass corner frequency
 """
