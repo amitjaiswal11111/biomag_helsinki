@@ -2,23 +2,22 @@
 """
 gradi_vectorplot.py
 
-Combine gradiometer data from evoked responses.
+Combine gradiometer data from evoked responses into a pairwise vector sum. 
 Plot combined responses in topographic plot (XPlotter style).
-Find peak amplitudes.
 
-TODO: use argparse
+NOTE: run with ipython --matplotlib -i -- gradi_vectorplot_py [args]
+so that single-channel plot (left click on topographic display) works properly.
 
-@author: jussi
+Tested with Python 2.7, MNE 0.11.0
+
+
+@author: jussi (jnu@iki.fi)
 """
 
 
 from __future__ import print_function
 
 
-import matplotlib
-
-import matplotlib.pyplot as plt
-import sys
 import mne
 import argparse
 import mne.viz
@@ -27,9 +26,6 @@ from scipy import signal
 from mne.channels.layout import _merge_grad_data, _pair_grad_sensors
 
 
-BUTTORD = 5  # order of Butterworth IIR lowpass filter
-default_lowpass = 60
-
 # parse command line
 parser = argparse.ArgumentParser()
 parser.add_argument('evoked_file', help='Name of evoked fiff file')
@@ -37,15 +33,11 @@ parser.add_argument('category', help='Name of evoked category to plot')
 parser.add_argument('--lowpass', type=float, metavar='f', default=None, help='Lowpass frequency (Hz)')
 args = parser.parse_args()
 
-## for testing
-#evoked_file = 'ekmultimodal02_raw_trans_tsss09_MEGrejoff_EOGrejoff_ave.fif'
-#category = 'Auditory right'
-#lowpass = 60
-
 # read evoked data
 evoked = mne.read_evokeds(args.evoked_file, condition=args.category)
 
 # filter and replace data in-place
+BUTTORD = 5  # order of Butterworth IIR lowpass filter
 if args.lowpass:
     data = evoked.data
     sfreq = evoked.info['sfreq']
@@ -89,9 +81,6 @@ for j,ch in enumerate(ch_names_gradc):
 # get peak
 pch, plat = evoked_mag.get_peak()
 print('Peak amplitude: channel pair',pch,'at latency',plat*1e3,'ms')
-
-# interactive plot    
-#plt.ion()
 
 mne.viz.plot_evoked_topo(evoked_mag, layout=laym, title=args.evoked_file)
 
