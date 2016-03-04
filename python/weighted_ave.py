@@ -70,9 +70,9 @@ eav = np.mean(ea,0)
 evar = epochs.average().data
 
 
-
-
-
+# wip : create data matrix from ea, then call:
+epochs._evoked_from_epoch_data()
+# to get evoked object w/ weighted average
 
 
 sys.exit()
