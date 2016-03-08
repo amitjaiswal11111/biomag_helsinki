@@ -32,6 +32,7 @@ get brain snr more directly (by e.g. function of distance?)
 import numpy as np
 import mne
 from mne import io
+from mne.io.constants import FIFF
 from mne.datasets import sample
 import sys
 
@@ -62,8 +63,83 @@ epochs = mne.Epochs(raw, events, event_id, tmin, tmax, picks=picks,
                     baseline=(None, 0), reject=dict(eeg=80e-6, eog=150e-6),
                     preload=True)
 
+epochs = mne.Epochs(raw, events, event_id, tmin, tmax, baseline=(None, 0), reject=dict(eeg=80e-6, eog=150e-6),
+                    preload=True)
+
+
+
+
+
+
+def chpi_snr_epochs(epochs):
+    """ Return estimated continuous HPI SNR for each epoch in epochs
+    (mne.Epochs object). SNR estimation is done by fitting a GLM to the data. """
+    # create general linear model for the data
+    t = np.linspace(0,buflen/sfreq,endpoint=False,num=buflen)
+    model = np.c_[t, np.ones(t.shape)]  # model slope and DC
+    for f in list(linefreqs)+cfreqs:  # add sine and cosine term for each freq
+        model = np.c_[model, np.cos(2*np.pi*f*t), np.sin(2*np.pi*f*t)]
+    inv_model = np.linalg.pinv(model)
+    
+    """ loop thru epochs, compute mean SNR at each epoch """
+    if args.stop:
+        stop = int(args.stop * sfreq)
+    else:
+        stop = raw.n_times
+    bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
+    tvec = np.array(bufs)/sfreq
+    snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
+    snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
+    resid_vars = np.zeros([306, len(bufs)])
+    ind = 0
+    for buf0 in bufs:  
+        megbuf = raw[pick_meg, buf0:buf0+buflen][0].transpose()
+        coeffs = np.dot(inv_model, megbuf)
+        coeffs_hpi = coeffs[2+2*len(linefreqs):]
+        resid_vars[:,ind] = np.var(megbuf-np.dot(model,coeffs), 0)
+        # get total hpi amplitudes by combining sine and cosine terms
+        hpi_amps = np.sqrt(coeffs_hpi[0::2,:]**2 + coeffs_hpi[1::2,:]**2)
+        # divide average HPI power by average variance
+        snr_avg_grad[:,ind] = np.divide((hpi_amps**2/2)[:,grad_ind].mean(1),resid_vars[grad_ind,ind].mean())
+        snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,mag_ind].mean(1),resid_vars[mag_ind,ind].mean())
+        ind += 1
+
+
+    
+def weighted_ave(epochs, weights):
+    """  Compute weighted average of epochs. epochs is a mne.Epochs object.
+    weights is numpy array with leading dim = n_epochs """
+    n_epochs = len(epochs)
+    if not len(weights) == n_epochs:
+        raise Exception('Need as many weights as epochs')
+    w_ = weights.squeeze()[:,np.newaxis,np.newaxis]  # reshape for broadcasting
+    epw = epochs.get_data() * w_  # / np.sum(w_)
+    epw_av = np.mean(epw, axis=0)
+    return epochs._evoked_from_epoch_data(epw_av, epochs.info, None, n_epochs, FIFF.FIFFV_ASPECT_AVERAGE)
+
+    
+    
+    
+w = np.random.rand(52)    
+w = np.ones(52)
+av_w = weighted_ave(epochs, w)
+av_mne = epochs.average()
+
+
+
+    
+    
+    
+sys.exit()
+    
+    
+
+
+
+
 # manual average
-ea = epochs.get_data()
+data = epochs.get_data()  # epochs x channels x times
+# weighting matrix needs dims of n_epochs x 1 x 1 according to NumPy broadcasting rules
 eav = np.mean(ea,0)
 
 # almost the same result (detrending etc.?)
