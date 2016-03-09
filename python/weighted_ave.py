@@ -36,6 +36,7 @@ from mne.io.constants import FIFF
 from mne.datasets import sample
 import sys
 
+
 data_path = sample.data_path()
 raw_fname = data_path + '/MEG/sample/sample_audvis_filt-0-40_raw.fif'
 #event_fname = data_path + '/MEG/sample/sample_audvis_filt-0-40_raw-eve.fif'
@@ -70,33 +71,39 @@ epochs = mne.Epochs(raw, events, event_id, tmin, tmax, baseline=(None, 0), rejec
 
 
 
-
-def chpi_snr_epochs(epochs):
+def chpi_snr_epochs(epochs, linefreqs):
     """ Return estimated continuous HPI SNR for each epoch in epochs
     (mne.Epochs object). SNR estimation is done by fitting a GLM to the data. """
-    # create general linear model for the data
-    t = np.linspace(0,buflen/sfreq,endpoint=False,num=buflen)
+
+    alldata = epochs.get_data()    
+    buflen = data.shape[2]
+    nepochs = len(epochs)
+    sfreq = epochs.info['sfreq']
+    t = np.linspace(0, buflen/sfreq, endpoint=False, num=buflen)
+    cfreqs = []    
+    if len(raw.info['hpi_meas']) > 0 and 'coil_freq' in raw.info['hpi_meas'][0]['hpi_coils'][0]:
+        for coil in epochs.info['hpi_meas'][0]['hpi_coils']:
+            cfreqs.append(coil['coil_freq'][0])
+    else:
+        raise Exception('Cannot determine cHPI frequencies from epoch data info')
+    ncoils = len(cfreqs)
+
+    # create linear model    
     model = np.c_[t, np.ones(t.shape)]  # model slope and DC
     for f in list(linefreqs)+cfreqs:  # add sine and cosine term for each freq
         model = np.c_[model, np.cos(2*np.pi*f*t), np.sin(2*np.pi*f*t)]
     inv_model = np.linalg.pinv(model)
-    
-    """ loop thru epochs, compute mean SNR at each epoch """
-    if args.stop:
-        stop = int(args.stop * sfreq)
-    else:
-        stop = raw.n_times
-    bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
-    tvec = np.array(bufs)/sfreq
-    snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
-    snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
-    resid_vars = np.zeros([306, len(bufs)])
+
+    snr_avg_grad = np.zeros([ncoils, nepochs])
+    snr_avg_mag = np.zeros([ncoils, nepochs])
+    resid_vars = np.zeros([306, nepochs])
     ind = 0
-    for buf0 in bufs:  
-        megbuf = raw[pick_meg, buf0:buf0+buflen][0].transpose()
-        coeffs = np.dot(inv_model, megbuf)
+        
+    for ep in range(nepochs):
+        epdata = alldata[ep, :, :].transpose()
+        coeffs = np.dot(inv_model, epdata)
         coeffs_hpi = coeffs[2+2*len(linefreqs):]
-        resid_vars[:,ind] = np.var(megbuf-np.dot(model,coeffs), 0)
+        resid_vars[:,ind] = np.var(epdata - np.dot(model, coeffs), 0)
         # get total hpi amplitudes by combining sine and cosine terms
         hpi_amps = np.sqrt(coeffs_hpi[0::2,:]**2 + coeffs_hpi[1::2,:]**2)
         # divide average HPI power by average variance
@@ -104,16 +111,21 @@ def chpi_snr_epochs(epochs):
         snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,mag_ind].mean(1),resid_vars[mag_ind,ind].mean())
         ind += 1
 
+        
+        
+    
+
 
     
 def weighted_ave(epochs, weights):
     """  Compute weighted average of epochs. epochs is a mne.Epochs object.
-    weights is numpy array with leading dim = n_epochs """
+    weights is a list or 1-d numpy array with leading dim of n_epochs. """
+    weights = np.array(weights)
     n_epochs = len(epochs)
     if not len(weights) == n_epochs:
         raise Exception('Need as many weights as epochs')
     w_ = weights.squeeze()[:,np.newaxis,np.newaxis]  # reshape for broadcasting
-    epw = epochs.get_data() * w_  # / np.sum(w_)
+    epw = epochs.get_data() * w_  # / np.sum(w_) # normalize?
     epw_av = np.mean(epw, axis=0)
     return epochs._evoked_from_epoch_data(epw_av, epochs.info, None, n_epochs, FIFF.FIFFV_ASPECT_AVERAGE)
 
