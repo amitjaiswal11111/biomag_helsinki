@@ -62,6 +62,7 @@ raw.info['bads'] = []  # make sure to load all channels
 pick_meg = mne.pick_types(raw.info, meg=True)
 pick_mag = mne.pick_types(raw.info, meg='mag')
 pick_grad = mne.pick_types(raw.info, meg='grad')
+nchan = len(pick_meg)
 
 # create general linear model for the data
 t = np.linspace(0,buflen/sfreq,endpoint=False,num=buflen)
@@ -79,7 +80,7 @@ bufs = range(0, int(stop), buflen)[:-1]  # drop last buffer to avoid overrun
 tvec = np.array(bufs)/sfreq
 snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
 snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
-resid_vars = np.zeros([306, len(bufs)])
+resid_vars = np.zeros([nchan, len(bufs)])
 ind = 0
 for buf0 in bufs:  
     megbuf = raw[pick_meg, buf0:buf0+buflen][0].transpose()
