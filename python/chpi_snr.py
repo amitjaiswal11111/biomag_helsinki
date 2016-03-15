@@ -58,15 +58,10 @@ print('Sampling frequency:', sfreq,'Hz')
 print('Using line freqs:', linefreqs, ' Hz')
 print('Using buffers of',buflen,'samples =',buflen/sfreq,'seconds\n')
 
+raw.info['bads'] = []  # make sure to load all channels
 pick_meg = mne.pick_types(raw.info, meg=True)
 pick_mag = mne.pick_types(raw.info, meg='mag')
 pick_grad = mne.pick_types(raw.info, meg='grad')
-meg_chnames = [raw.ch_names[i] for i in pick_meg]
-mag_chnames = [raw.ch_names[i] for i in pick_mag]
-grad_chnames = [raw.ch_names[i] for i in pick_grad]
-# indices into 306-dim channel matrix
-mag_ind = [i for i in range(0,len(meg_chnames)) if meg_chnames[i] in mag_chnames]
-grad_ind = [i for i in range(0,len(meg_chnames)) if meg_chnames[i] in grad_chnames]
 
 # create general linear model for the data
 t = np.linspace(0,buflen/sfreq,endpoint=False,num=buflen)
@@ -94,8 +89,8 @@ for buf0 in bufs:
     # get total hpi amplitudes by combining sine and cosine terms
     hpi_amps = np.sqrt(coeffs_hpi[0::2,:]**2 + coeffs_hpi[1::2,:]**2)
     # divide average HPI power by average variance
-    snr_avg_grad[:,ind] = np.divide((hpi_amps**2/2)[:,grad_ind].mean(1),resid_vars[grad_ind,ind].mean())
-    snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,mag_ind].mean(1),resid_vars[mag_ind,ind].mean())
+    snr_avg_grad[:,ind] = np.divide((hpi_amps**2/2)[:,pick_grad].mean(1),resid_vars[pick_grad,ind].mean())
+    snr_avg_mag[:,ind] = np.divide((hpi_amps**2/2)[:,pick_mag].mean(1),resid_vars[pick_mag,ind].mean())
     ind += 1
 
 
@@ -123,7 +118,7 @@ plt.xlim([plt.xlim()[0], plt.xlim()[1]*(1+legend_hspace/100.)])
 
 # residual (unexplained) variance as function of time
 plt.figure()
-plt.semilogy(tvec,resid_vars[grad_ind,:].transpose())
+plt.semilogy(tvec,resid_vars[pick_grad,:].transpose())
 plt.title('Residual (unexplained) variance, gradiometers')
 plt.xlabel('Time (s)')
 plt.ylabel('Variance (T/m)^2')
